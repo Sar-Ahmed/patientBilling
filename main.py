@@ -24,12 +24,17 @@ def main():
     print("\nEnter common values for all rows:")
     date_of_service = input("Date of service (YYYY-MM-DD): ")
     
-    # Facility code validation (must be OD411 or OD096)
+    # Facility code input with simple codes
     while True:
-        facility_code = input("Facility code (OD411 or OD096): ").upper()
-        if facility_code in ['OD411', 'OD096']:
+        facility_input = input("Facility code (Enter 'S' for OD411 or 'A' for OD096): ").upper()
+        if facility_input == 'S':
+            facility_code = 'OD411'
             break
-        print("Invalid facility code. Must be OD411 or OD096.")
+        elif facility_input == 'A':
+            facility_code = 'OD096'
+            break
+        else:
+            print("Invalid input. Please enter 'S' for OD411 or 'A' for OD096.")
     
     location = input("Location (default is 'L'): ") or "L"
     
