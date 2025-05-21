@@ -122,7 +122,7 @@ def main():
         patient_df.loc[patient_df['PHN'] == phn, 'diagnosis'] = diagnosis
 
         # Time entries
-        if billing_item in ['98010', '98011', '98012']:
+        if billing_item in ['98010', '98011', '98012', '98119']:
             start_time_list.append(input("Start time (HH:MM): "))
             end_time_list.append(input("End time (HH:MM): "))
         else:
