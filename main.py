@@ -6,9 +6,11 @@ def main():
     patient_list_path = 'Patient_list.csv'
     if os.path.exists(patient_list_path):
         patient_df = pd.read_csv(patient_list_path)
+        if 'diagnosis' not in patient_df.columns:
+            patient_df['diagnosis'] = ''
     else:
-        patient_df = pd.DataFrame(columns=['PHN', 'last_name', 'first_name', 'date_of_birth'])
-    
+        patient_df = pd.DataFrame(columns=['PHN', 'last_name', 'first_name', 'date_of_birth', 'diagnosis'])
+
     # Ask user for number of rows
     while True:
         try:
@@ -19,28 +21,29 @@ def main():
                 print("Please enter a positive integer.")
         except ValueError:
             print("Please enter a valid integer.")
-    
+
     # Get common values
     print("\nEnter common values for all rows:")
     date_of_service = input("Date of service (YYYY-MM-DD): ")
-    
+
     # Facility code input with simple codes
     while True:
+        facility_mapping = {
+            'S': ('OD411', 'Stone Bridge Clinic', 'Big White'),
+            'A': ('OD096', 'Academy Hill Medical', 'None')
+        }
+
         facility_input = input("Facility code (Enter 'S' for OD411 or 'A' for OD096): ").upper()
-        if facility_input == 'S':
-            facility_code = 'OD411'
-            break
-        elif facility_input == 'A':
-            facility_code = 'OD096'
+
+        if facility_input in facility_mapping:
+            facility_code, facility_name, rural_premium = facility_mapping[facility_input]
+            print(f"Added {facility_name} with Rural Premium as {rural_premium if rural_premium else 'None'}")
             break
         else:
             print("Invalid input. Please enter 'S' for OD411 or 'A' for OD096.")
-    
-    location = input("Location (default is 'L'): ") or "L"
-    
-    # Rural Premium - simplified to just 'B'
-    rural_premium = 'Big White' if input("Rural Premium (enter 'B' for Big White or leave empty): ").upper() == 'B' else None
-    
+
+    location = "L"
+
     # Initialize lists
     last_name_list = []
     first_name_list = []
@@ -50,76 +53,87 @@ def main():
     diagnosis_list = []
     start_time_list = []
     end_time_list = []
-    
+
     print("\nEnter patient details for each row:")
     for i in range(1, num_rows + 1):
         print(f"\nRow {i}:")
-        
+
         # PHN lookup
         while True:
             phn = input("PHN: ").strip()
             if not phn:
                 print("PHN cannot be empty. Please try again.")
                 continue
-            
-            # Check if patient exists
+
             patient_match = patient_df[patient_df['PHN'] == phn]
             if not patient_match.empty:
-                # Existing patient - auto-fill details
+                # Existing patient
                 patient = patient_match.iloc[0]
                 print(f"Found existing patient: {patient['first_name']} {patient['last_name']}")
                 last_name = patient['last_name']
                 first_name = patient['first_name']
                 dob = patient['date_of_birth']
+                diagnosis_default = patient.get('diagnosis', '')
                 break
             else:
-                # New patient - collect details
+                # New patient
                 print("New patient - please enter details")
                 last_name = input("Last name: ").strip()
                 first_name = input("First name: ").strip()
                 dob = input("Date of birth (YYYY-MM-DD): ").strip()
-                
-                # Add to patient list
+                diagnosis_default = input("Diagnosis: ").strip()
+
                 new_patient = pd.DataFrame([{
                     'PHN': phn,
                     'last_name': last_name,
                     'first_name': first_name,
-                    'date_of_birth': dob
+                    'date_of_birth': dob,
+                    'diagnosis': diagnosis_default
                 }])
                 patient_df = pd.concat([patient_df, new_patient], ignore_index=True)
                 break
-        
-        # Store for current session
+
         phn_list.append(phn)
         last_name_list.append(last_name)
         first_name_list.append(first_name)
         dob_list.append(dob)
-        
-        # Get billing item with default
+
         billing_item = input("Billing item (default is 98032): ") or "98032"
         billing_item_list.append(billing_item)
-        
-        # Set diagnosis to L23 if billing item is 98010 or 98011
-        if billing_item in ['98010', '98011']:
+
+        # Auto-set diagnosis for specific billing codes
+        if billing_item in ['98010', '98011', '98012', '98119']:
+            billing_types = {
+                '98010': 'LFP Direct Patient Care',
+                '98011': 'LFP Indirect Patient Care',
+                '98012': 'LFP Admin Care',
+                '98119': 'Travel Time'
+            }
             diagnosis = 'L23'
-            print(f"Diagnosis automatically set to {diagnosis} for this billing code")
+            print(f"Diagnosis automatically set to {diagnosis} for billing code: {billing_item} - {billing_types[billing_item]}")
         else:
-            diagnosis = input("Diagnosis: ")
+            # Suggest the existing/default diagnosis (editable)
+            diagnosis = input(f"Diagnosis [{diagnosis_default}]: ").strip()
+            if not diagnosis:
+                diagnosis = diagnosis_default
         diagnosis_list.append(diagnosis)
-        
-        # Time entries for specific billing codes
-        if billing_item in ['98010', '98011']:
+
+        # Update diagnosis in patient_df for this PHN
+        patient_df.loc[patient_df['PHN'] == phn, 'diagnosis'] = diagnosis
+
+        # Time entries
+        if billing_item in ['98010', '98011', '98012']:
             start_time_list.append(input("Start time (HH:MM): "))
             end_time_list.append(input("End time (HH:MM): "))
         else:
             start_time_list.append('')
             end_time_list.append('')
-    
+
     # Save updated patient list
     patient_df.to_csv(patient_list_path, index=False)
     print(f"\nPatient list updated at {patient_list_path}")
-    
-    # Create service records dataframe
+
+    # Create service records
     service_data = {
         'date_of_service': [date_of_service] * num_rows,
         'last_name': last_name_list,
@@ -134,11 +148,11 @@ def main():
         'end_time': end_time_list,
         'rural_premium': [rural_premium] * num_rows
     }
-    
+
     service_df = pd.DataFrame(service_data)
     print("\nGenerated Service Records:")
     print(service_df)
-    
+
     # Save service records
     save_csv = input("\nWould you like to save the service records to CSV? (y/n): ").lower()
     if save_csv == 'y':
