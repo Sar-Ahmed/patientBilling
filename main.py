@@ -98,16 +98,38 @@ def main():
         first_name_list.append(first_name)
         dob_list.append(dob)
 
-        billing_item = input("Billing item (default is 98032): ") or "98032"
+        billing_options = {
+        '1': ('98010', 'LFP Direct Patient Care'),
+        '2': ('98011', 'LFP Indirect Patient Care'),
+        '3': ('98012', 'LFP Admin Care'),
+        '4': ('98119', 'Travel Time'),
+        '5': ('98031', 'LFP Office'),
+        '6': ('98990', 'Primary Care Panel'),
+        '0': ('98032', 'LFP Virtual (default)')
+        }
+
+        print("\nSelect billing item:")
+        for key, (code, description) in billing_options.items():
+            print(f"{key}: {code} - {description}")
+
+        while True:
+            billing_choice = input("Enter the number for billing item (default is 0): ").strip() or '0'
+            if billing_choice in billing_options:
+                billing_item, billing_description = billing_options[billing_choice]
+                break
+            else:
+                print("Invalid choice. Please select a valid number.")
+
         billing_item_list.append(billing_item)
 
         # Auto-set diagnosis for specific billing codes
-        if billing_item in ['98010', '98011', '98012', '98119']:
+        if billing_item in ['98010', '98011', '98012', '98119', '98990']:
             billing_types = {
                 '98010': 'LFP Direct Patient Care',
                 '98011': 'LFP Indirect Patient Care',
                 '98012': 'LFP Admin Care',
-                '98119': 'Travel Time'
+                '98119': 'Travel Time',
+                '98990': 'Primary Care Panel Report'
             }
             diagnosis = 'L23'
             print(f"Diagnosis automatically set to {diagnosis} for billing code: {billing_item} - {billing_types[billing_item]}")
