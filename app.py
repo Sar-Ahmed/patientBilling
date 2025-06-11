@@ -77,6 +77,9 @@ billing_keys = list(billing_options.keys())
 for i in range(st.session_state.num_patients):
     st.markdown(f"---\n### Patient #{i + 1}")
 
+    if st.session_state.get(f"duplicate_created_{i}", False):
+        st.info("This is a secondary billing entry for the same patient (triggered by 98990).")
+
     if f"add_new_{i}" not in st.session_state:
         st.session_state[f"add_new_{i}"] = False
 
@@ -157,7 +160,6 @@ for i in range(st.session_state.num_patients):
             new_code_key = f"new_code_{i}"
             new_desc_key = f"new_desc_{i}"
 
-            # ✅ FIX: Set initial value via `value` argument
             new_code = st.text_input(f"New Diagnosis Code #{i+1}", key=new_code_key, value=st.session_state.get(new_code_key, ""))
             new_desc = st.text_input(f"New Diagnosis Description #{i+1}", key=new_desc_key, value=st.session_state.get(new_desc_key, ""))
             diagnosis_code = ""
@@ -182,7 +184,6 @@ for i in range(st.session_state.num_patients):
                     st.session_state[reset_flag_code] = True
                     st.session_state[reset_flag_desc] = True
                     st.rerun()
-
             else:
                 st.warning(f"⚠️ Enter both code and description for Patient #{i+1}.")
         else:
@@ -208,6 +209,18 @@ for i in range(st.session_state.num_patients):
             'end_time': end_time,
             'rural_premium': rural_premium
         }
+
+    # Auto duplicate for 98990
+    if billing_item == '98990' and not st.session_state.get(f"duplicate_created_{i}", False):
+        st.session_state[f"duplicate_created_{i}"] = True
+        st.session_state.num_patients += 1
+        new_index = st.session_state.num_patients - 1
+        st.session_state[f"phn_select_{new_index}"] = phn_selection
+        st.session_state[f"phn_{new_index}_val"] = phn
+        st.session_state[f"fname_{new_index}_val"] = fname
+        st.session_state[f"lname_{new_index}_val"] = lname
+        st.session_state[f"dob_{new_index}_val"] = dob
+        st.rerun()
 
     if i == st.session_state.num_patients - 1:
         if st.button("➕ Add Another Patient", key=f"add_patient_{st.session_state.num_patients}"):
