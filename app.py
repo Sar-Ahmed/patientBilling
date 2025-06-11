@@ -7,7 +7,7 @@ from datetime import datetime
 # Constants
 PATIENT_LIST_PATH = 'Patient_list.csv'
 DIAGNOSIS_CODES_DIR = "diagnosis codes"
-NEW_CODES_PATH = os.path.join(DIAGNOSIS_CODES_DIR, "Diagnosi_Code_NEW.csv")
+NEW_CODES_PATH = os.path.join(DIAGNOSIS_CODES_DIR, "Diagnosis_Code_NEW.csv")
 
 def load_patient_list():
     if os.path.exists(PATIENT_LIST_PATH):
@@ -37,8 +37,7 @@ def load_diagnosis_codes():
     return pd.concat(diag_frames, ignore_index=True)
 
 def get_diag_options(diag_df):
-    options = diag_df['Code'].astype(str) + " - " + diag_df['Description'].astype(str)
-    return options
+    return diag_df['Code'].astype(str) + " - " + diag_df['Description'].astype(str)
 
 # Load data
 patient_df = load_patient_list()
@@ -83,11 +82,9 @@ for i in range(st.session_state.num_patients):
     if f"add_new_{i}" not in st.session_state:
         st.session_state[f"add_new_{i}"] = False
 
-    phn_display_list = [
-        f"{row['PHN']} - {row['first_name']} {row['last_name']}"
-        for _, row in patient_df.iterrows()
+    phn_display_list = ["➕ Add New Patient"] + [
+        f"{row['PHN']} - {row['first_name']} {row['last_name']}" for _, row in patient_df.iterrows()
     ]
-    phn_display_list = ["➕ Add New Patient"] + phn_display_list
 
     phn_selection = st.selectbox(f"Select or Add Patient #{i+1}", phn_display_list, key=f"phn_select_{i}")
 
@@ -138,8 +135,10 @@ for i in range(st.session_state.num_patients):
         key=f"billing_item_{i}"
     )
 
-    saved_diag_code = existing.iloc[0]['diagnosis'] if not existing.empty else ""
+    # 🛠️ Initialize diagnosis_code to avoid NameError
+    diagnosis_code = ""
 
+    saved_diag_code = existing.iloc[0]['diagnosis'] if not existing.empty else ""
     if billing_item in ['98010', '98011', '98012', '98119', '98990']:
         diagnosis_code = "L23"
         st.text_input(f"Diagnosis #{i+1}", "L23 - Automatically assigned", key=f"diag_{i}", disabled=True)
@@ -147,52 +146,69 @@ for i in range(st.session_state.num_patients):
         diag_df = load_diagnosis_codes()
         diag_options = get_diag_options(diag_df)
         diag_code_map = dict(zip(diag_options, diag_df['Code']))
-
+        reverse_diag_map = {v: k for k, v in diag_code_map.items()}
         diagnosis_choices = ["Select", "➕ Add New Diagnosis"] + list(diag_options)
-        if pd.notna(saved_diag_code) and saved_diag_code != "" and not any(opt.startswith(str(saved_diag_code)) for opt in diagnosis_choices):
-            diagnosis_choices.insert(1, saved_diag_code)
 
-        default_index = next((idx for idx, option in enumerate(diagnosis_choices) if str(saved_diag_code).startswith(option.split(" - ")[0])), 0)
+        # Resolve saved diagnosis
+        saved_diag = st.session_state.get(f"saved_diag_{i}", None)
 
+        if saved_diag_code:
+            # Try to map saved code to full "Code - Description" format
+            matching_diag = diag_df[diag_df["Code"] == saved_diag_code]
+            if not matching_diag.empty:
+                full_diag = f"{saved_diag_code} - {matching_diag.iloc[0]['Description']}"
+            else:
+                full_diag = f"{saved_diag_code} - (Unknown)"
+            
+            if not saved_diag:
+                st.session_state[f"saved_diag_{i}"] = full_diag
+                saved_diag = full_diag
+            
+            # Make sure it's in the diagnosis list
+            if full_diag not in diagnosis_choices:
+                diagnosis_choices.insert(1, full_diag)
+
+        if saved_diag and saved_diag not in diagnosis_choices:
+            diagnosis_choices.insert(1, saved_diag)
+
+        default_index = diagnosis_choices.index(saved_diag) if saved_diag in diagnosis_choices else 0
         diagnosis_selection = st.selectbox(f"Diagnosis #{i+1}", diagnosis_choices, key=f"diag_select_{i}", index=default_index)
 
         if diagnosis_selection == "➕ Add New Diagnosis":
-            new_code_key = f"new_code_{i}"
-            new_desc_key = f"new_desc_{i}"
-
-            new_code = st.text_input(f"New Diagnosis Code #{i+1}", key=new_code_key, value=st.session_state.get(new_code_key, ""))
-            new_desc = st.text_input(f"New Diagnosis Description #{i+1}", key=new_desc_key, value=st.session_state.get(new_desc_key, ""))
-            diagnosis_code = ""
+            new_code = st.text_input(f"New Diagnosis Code #{i+1}", key=f"new_code_{i}")
+            new_desc = st.text_input(f"New Diagnosis Description #{i+1}", key=f"new_desc_{i}")
             if new_code.strip() and new_desc.strip():
                 diagnosis_code = new_code.strip()
-                diagnosis_selection = f"{diagnosis_code} - {new_desc.strip()}"
-                reset_flag_code = f"reset_{new_code_key}"
-                reset_flag_desc = f"reset_{new_desc_key}"
-
-                if reset_flag_code in st.session_state and st.session_state[reset_flag_code]:
-                    st.session_state[new_code_key] = ""
-                    st.session_state[reset_flag_code] = False
-
-                if reset_flag_desc in st.session_state and st.session_state[reset_flag_desc]:
-                    st.session_state[new_desc_key] = ""
-                    st.session_state[reset_flag_desc] = False
-
+                full_diag = f"{diagnosis_code} - {new_desc.strip()}"
                 if st.button(f"💾 Save Diagnosis for Patient #{i+1}", key=f"save_diag_btn_{i}"):
                     pd.DataFrame([{"Code": diagnosis_code, "Description": new_desc.strip()}]).to_csv(
                         NEW_CODES_PATH, mode='a', index=False, header=not os.path.exists(NEW_CODES_PATH))
-                    st.success(f"Saved: {diagnosis_code} - {new_desc.strip()}")
-                    st.session_state[reset_flag_code] = True
-                    st.session_state[reset_flag_desc] = True
+                    st.session_state[f"saved_diag_{i}"] = full_diag
+                    st.success(f"Saved: {full_diag}")
                     st.rerun()
             else:
                 st.warning(f"⚠️ Enter both code and description for Patient #{i+1}.")
-        else:
+        elif diagnosis_selection != "Select":
             diagnosis_code = diag_code_map.get(diagnosis_selection, "")
-            if diagnosis_selection == "Select":
-                st.warning(f"⚠️ Please select a diagnosis for Patient #{i+1}.")
+            st.session_state[f"saved_diag_{i}"] = diagnosis_selection
+        else:
+            st.warning(f"⚠️ Please select a diagnosis for Patient #{i+1}.")
 
     start_time = st.text_input(f"Start Time #{i+1} (HH:MM)", key=f"start_{i}") if billing_item in ['98010', '98011', '98012', '98119'] else ''
     end_time = st.text_input(f"End Time #{i+1} (HH:MM)", key=f"end_{i}") if billing_item in ['98010', '98011', '98012', '98119'] else ''
+
+    if billing_item in ['98010', '98011', '98012', '98119']:
+        if st.button(f"Duplicate Patient #{i+1} Entry", key=f"dup_btn_{i}"):
+            st.session_state.num_patients += 1
+            new_index = st.session_state.num_patients - 1
+            st.session_state[f"phn_select_{new_index}"] = phn_selection
+            st.session_state[f"phn_{new_index}_val"] = phn
+            st.session_state[f"fname_{new_index}_val"] = fname
+            st.session_state[f"lname_{new_index}_val"] = lname
+            st.session_state[f"dob_{new_index}_val"] = dob
+            if f"saved_diag_{i}" in st.session_state:
+                st.session_state[f"saved_diag_{new_index}"] = st.session_state[f"saved_diag_{i}"]
+            st.rerun()
 
     if phn:
         st.session_state.entries[i] = {
@@ -210,7 +226,6 @@ for i in range(st.session_state.num_patients):
             'rural_premium': rural_premium
         }
 
-    # Auto duplicate for 98990
     if billing_item == '98990' and not st.session_state.get(f"duplicate_created_{i}", False):
         st.session_state[f"duplicate_created_{i}"] = True
         st.session_state.num_patients += 1
@@ -220,6 +235,8 @@ for i in range(st.session_state.num_patients):
         st.session_state[f"fname_{new_index}_val"] = fname
         st.session_state[f"lname_{new_index}_val"] = lname
         st.session_state[f"dob_{new_index}_val"] = dob
+        if f"saved_diag_{i}" in st.session_state:
+            st.session_state[f"saved_diag_{new_index}"] = st.session_state[f"saved_diag_{i}"]
         st.rerun()
 
     if i == st.session_state.num_patients - 1:
