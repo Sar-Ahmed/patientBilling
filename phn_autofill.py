@@ -6,6 +6,21 @@ import re
 import os
 import glob
 import datetime
+import io
+
+def repair_multiline_csv(file_path):
+    """Read a CSV file and join lines that start with a comma to the previous line."""
+    repaired_lines = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.startswith(','):
+                if repaired_lines:
+                    repaired_lines[-1] = repaired_lines[-1].rstrip('\n') + ' ' + line.lstrip(',').strip('\n')
+                else:
+                    repaired_lines.append(line.lstrip(',').strip('\n'))
+            else:
+                repaired_lines.append(line.strip('\n'))
+    return io.StringIO('\n'.join(repaired_lines))
 
 def extract_visit_type(text):
     """Extract Visit Type from OCR text and map to billing code for LFP Virtual or LFP Office only."""
@@ -71,7 +86,7 @@ def extract_diagnosis_code(searchable_text):
     return searchable_text
 
 def load_diagnosis_codes():
-    """Load all diagnosis codes from CSV files in the diagnosis codes folder"""
+    """Load all diagnosis codes from CSV files in the diagnosis codes folder, repairing multi-line descriptions if needed."""
     all_codes = []
     diagnosis_folder = 'diagnosis codes'
     
@@ -81,16 +96,17 @@ def load_diagnosis_codes():
         
         for csv_file in csv_files:
             try:
-                df = pd.read_csv(csv_file)
+                # Use the repair function to handle multi-line descriptions
+                repaired_csv = repair_multiline_csv(csv_file)
+                # Force Code column to be treated as string to prevent numeric conversion
+                df = pd.read_csv(repaired_csv, dtype={'Code': str})
                 # Check if the file has Code and Description columns
                 if 'Code' in df.columns and 'Description' in df.columns:
                     # Clean the data - remove rows with NaN values
                     df = df.dropna(subset=['Code', 'Description'])
-                    
                     # Convert Code to string and handle any remaining NaN values
                     df['Code'] = df['Code'].astype(str).fillna('')
                     df['Description'] = df['Description'].fillna('')
-                    
                     # Add filename as category for organization
                     category = os.path.basename(csv_file).replace('.csv', '').replace('Diagnosis_Code_', '')
                     df['Category'] = category
@@ -101,19 +117,15 @@ def load_diagnosis_codes():
     if all_codes:
         # Combine all dataframes
         combined_df = pd.concat(all_codes, ignore_index=True)
-        
         # Additional cleaning - remove any rows with empty codes or descriptions
         combined_df = combined_df[
             (combined_df['Code'].str.strip() != '') & 
             (combined_df['Description'].str.strip() != '')
         ]
-        
         # Create a searchable format: "Code - Description (Category)"
         combined_df['Searchable'] = combined_df['Code'].astype(str) + ' - ' + combined_df['Description'] + ' (' + combined_df['Category'] + ')'
-        
         # Convert to list and ensure all values are strings
         searchable_list = combined_df['Searchable'].astype(str).tolist()
-        
         return searchable_list
     else:
         return []
