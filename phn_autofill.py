@@ -7,6 +7,7 @@ import os
 import glob
 import datetime
 import io
+import csv
 
 def repair_multiline_csv(file_path):
     """Read a CSV file and join lines that start with a comma to the previous line."""
@@ -283,41 +284,67 @@ if uploaded_png is not None:
                     if is_new_patient:
                         st.warning(f"Patient with PHN {current_df.iloc[idx]['PHN']} not found in database. Please add patient information.")
                         with st.expander("Add Patient Information", expanded=True):
-                            first_name = st.text_input("First Name", key=f"first_name_{idx}")
-                            last_name = st.text_input("Last Name", key=f"last_name_{idx}")
-                            date_of_birth = st.text_input("Date of Birth (YYYY-MM-DD)", key=f"dob_{idx}")
-                            
-                            if st.button("Save Patient Info", key=f"save_patient_{idx}"):
-                                # Save to session state
+                            # Load patient list for dropdown
+                            patient_df_dropdown = load_patient_list()
+                            phn_options = ["➕ Enter New PHN"]
+                            phn_display_map = {}
+                            for _, row in patient_df_dropdown.iterrows():
+                                display = f"{row['PHN']} - {row['first_name']} {row['last_name']}"
+                                phn_options.append(display)
+                                phn_display_map[display] = row
+                            phn_value = current_df.iloc[idx]['PHN']
+                            default_phn_option = 0
+                            if phn_value:
+                                for i, display in enumerate(phn_options):
+                                    if display.startswith(phn_value):
+                                        default_phn_option = i
+                                        break
+                            selected_phn_option = st.selectbox(
+                                "Select Existing PHN or Enter New",
+                                phn_options,
+                                index=default_phn_option,
+                                key=f"phn_select_{idx}"
+                            )
+                            if selected_phn_option == "➕ Enter New PHN":
+                                st.warning("Patient with PHN not found in database. Please add patient information.")
+                                phn_value = st.text_input("PHN (10 digits)", value=phn_value, key=f"phn_{idx}")
+                                first_name = st.text_input("First Name", key=f"first_name_{idx}")
+                                last_name = st.text_input("Last Name", key=f"last_name_{idx}")
+                                date_of_birth = st.text_input("Date of Birth (YYYY-MM-DD)", key=f"dob_{idx}")
+                                if st.button("Save Patient Info", key=f"save_patient_{idx}"):
+                                    # Save to session state
+                                    st.session_state.df.at[idx, 'PHN'] = phn_value
+                                    st.session_state.df.at[idx, 'first_name'] = first_name
+                                    st.session_state.df.at[idx, 'last_name'] = last_name
+                                    st.session_state.df.at[idx, 'date_of_birth'] = date_of_birth
+                                    # Only save to Patient_List.csv if it's a new PHN
+                                    try:
+                                        patient_df = load_patient_list()
+                                        if not (patient_df['PHN'] == phn_value).any():
+                                            new_patient = {
+                                                'PHN': phn_value,
+                                                'last_name': last_name,
+                                                'first_name': first_name,
+                                                'date_of_birth': date_of_birth,
+                                                'diagnosis': ''
+                                            }
+                                            patient_df = pd.concat([patient_df, pd.DataFrame([new_patient])], ignore_index=True)
+                                            patient_df.to_csv(PATIENT_LIST_PATH, index=False)
+                                            st.success(f"Patient information saved to {PATIENT_LIST_PATH}")
+                                    except Exception as e:
+                                        st.error(f"Error saving to Patient_List.csv: {str(e)}")
+                                    st.rerun()
+                            else:
+                                # Autofill from patient list and update session state immediately
+                                selected_row = phn_display_map[selected_phn_option]
+                                phn_value = selected_row['PHN']
+                                first_name = selected_row['first_name']
+                                last_name = selected_row['last_name']
+                                date_of_birth = selected_row['date_of_birth']
+                                st.session_state.df.at[idx, 'PHN'] = phn_value
                                 st.session_state.df.at[idx, 'first_name'] = first_name
                                 st.session_state.df.at[idx, 'last_name'] = last_name
                                 st.session_state.df.at[idx, 'date_of_birth'] = date_of_birth
-                                
-                                # Save to Patient_List.csv
-                                try:
-                                    # Load existing patient list
-                                    patient_df = load_patient_list()
-                                    
-                                    # Create new patient row
-                                    new_patient = {
-                                        'PHN': current_df.iloc[idx]['PHN'],
-                                        'last_name': last_name,
-                                        'first_name': first_name,
-                                        'date_of_birth': date_of_birth,
-                                        'diagnosis': ''
-                                    }
-                                    
-                                    # Add new patient to the dataframe
-                                    patient_df = pd.concat([patient_df, pd.DataFrame([new_patient])], ignore_index=True)
-                                    
-                                    # Save back to CSV
-                                    patient_df.to_csv(PATIENT_LIST_PATH, index=False)
-                                    
-                                    st.success(f"Patient information saved to {PATIENT_LIST_PATH}")
-                                except Exception as e:
-                                    st.error(f"Error saving to Patient_List.csv: {str(e)}")
-                                
-                                st.rerun()
                     
                     # Create a more stable editing interface
                     row_data = current_df.iloc[idx]
@@ -328,6 +355,32 @@ if uploaded_png is not None:
                     
                     # Editable fields
                     st.markdown("**Edit Fields:**")
+                    # --- Editable appointment date (text input and calendar picker) ---
+                    import datetime
+                    date_val = row_data['date_of_service']
+                    try:
+                        date_val = datetime.datetime.strptime(date_val, "%Y-%m-%d").date() if date_val else datetime.date.today()
+                    except Exception:
+                        date_val = datetime.date.today()
+                    date_of_service_picker = st.date_input(
+                        "Date of Service (calendar)",
+                        value=date_val,
+                        key=f"date_of_service_picker_{idx}"
+                    )
+                    # Save as string in YYYY-MM-DD format
+                    date_of_service_str = date_of_service_picker.strftime("%Y-%m-%d")
+                    # Also allow manual text input
+                    date_of_service_text = st.text_input(
+                        "Date of Service (YYYY-MM-DD)",
+                        value=date_of_service_str,
+                        key=f"date_of_service_text_{idx}"
+                    )
+                    # If either input changes, update session state
+                    if date_of_service_text != row_data['date_of_service']:
+                        st.session_state.df.at[idx, 'date_of_service'] = date_of_service_text
+                    elif date_of_service_str != row_data['date_of_service']:
+                        st.session_state.df.at[idx, 'date_of_service'] = date_of_service_str
+                    
                     edit_col1, edit_col2 = st.columns(2)
                     
                     with edit_col1:
@@ -380,6 +433,44 @@ if uploaded_png is not None:
                                 key=f"diagnosis_{idx}",
                                 help="Select or search for a diagnosis code"
                             )
+                            
+                            # Add UI to add a new diagnosis code
+                            with st.expander("➕ Add New Diagnosis Code", expanded=False):
+                                new_code = st.text_input("New Diagnosis Code", key=f"new_diag_code_{idx}")
+                                new_desc = st.text_input("New Diagnosis Description", key=f"new_diag_desc_{idx}")
+                                if st.button("Add Diagnosis Code", key=f"add_diag_btn_{idx}"):
+                                    if new_code and new_desc:
+                                        # Append to Diagnosis_Code_NEW.csv
+                                        new_row = [new_code, new_desc]
+                                        new_csv_path = os.path.join('diagnosis codes', 'Diagnosis_Code_NEW.csv')
+                                        try:
+                                            # Check if file exists and if code already exists
+                                            exists = os.path.exists(new_csv_path)
+                                            code_exists = False
+                                            if exists:
+                                                with open(new_csv_path, 'r', encoding='utf-8') as f:
+                                                    reader = csv.reader(f)
+                                                    next(reader, None)  # skip header
+                                                    for row in reader:
+                                                        if row and row[0].strip() == new_code.strip():
+                                                            code_exists = True
+                                                            break
+                                            if code_exists:
+                                                st.warning(f"Code {new_code} already exists in Diagnosis_Code_NEW.csv.")
+                                            else:
+                                                with open(new_csv_path, 'a', encoding='utf-8', newline='') as f:
+                                                    writer = csv.writer(f)
+                                                    if not exists or os.path.getsize(new_csv_path) == 0:
+                                                        writer.writerow(["Code", "Description"])
+                                                    writer.writerow(new_row)
+                                                st.success(f"Added new diagnosis code: {new_code} - {new_desc}")
+                                                # Reload diagnosis codes
+                                                diagnosis_codes_df = load_diagnosis_codes()
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error adding new diagnosis code: {str(e)}")
+                                    else:
+                                        st.warning("Please enter both a code and a description.")
                             
                             # Update diagnosis in session state
                             if new_diagnosis != current_diagnosis_option:
@@ -455,6 +546,28 @@ if uploaded_png is not None:
                 st.session_state.df = pd.DataFrame(columns=['date_of_service', 'last_name', 'first_name', 'PHN', 'date_of_birth', 'billing_item', 'diagnosis', 'location', 'facility_code', 'start_time', 'end_time', 'rural_premium'])
                 st.rerun()
             
+            # Add a button to save all patient rows (with diagnosis) to Patient_List.csv
+            if st.button("💾 Save Patient List with Diagnosis"):
+                updated_patients = load_patient_list()
+                for _, entry in st.session_state.df.iterrows():
+                    if not entry['PHN']:
+                        continue
+                    idx = updated_patients[updated_patients['PHN'] == entry['PHN']].index
+                    if not idx.empty:
+                        updated_patients.loc[idx[0], ['first_name', 'last_name', 'date_of_birth', 'diagnosis']] = (
+                            entry['first_name'], entry['last_name'], entry['date_of_birth'], entry['diagnosis']
+                        )
+                    else:
+                        updated_patients = pd.concat([updated_patients, pd.DataFrame([{
+                            'PHN': entry['PHN'],
+                            'first_name': entry['first_name'],
+                            'last_name': entry['last_name'],
+                            'date_of_birth': entry['date_of_birth'],
+                            'diagnosis': entry['diagnosis']
+                        }])], ignore_index=True)
+                updated_patients.to_csv(PATIENT_LIST_PATH, index=False)
+                st.success("✅ Patient list updated with diagnosis.")
+            
             # Display final summary table
             st.header("📊 Final Summary Table")
             st.dataframe(
@@ -519,9 +632,3 @@ if uploaded_png is not None:
     except Exception as e:
         st.error(f"Error processing image: {str(e)}")
 
-def extract_visit_type(text):
-    """Extract Visit Type from OCR text and map to billing code using BILLING_CODES descriptions."""
-    for code, desc in BILLING_CODES.items():
-        if desc.lower() in text.lower():
-            return code
-    return None 
