@@ -197,8 +197,22 @@ if uploaded_png is not None:
         appointment_date = extract_appointment_date(raw_text)
         # Extract visit type from the image
         visit_type_code = extract_visit_type(raw_text)
+        # --- Single editable appointment date at the top ---
+        import datetime
         if appointment_date:
-            st.info(f"Found appointment date in image: {appointment_date}")
+            try:
+                date_val = datetime.datetime.strptime(appointment_date, "%Y-%m-%d").date()
+            except Exception:
+                date_val = datetime.date.today()
+        else:
+            date_val = datetime.date.today()
+        appointment_date_picker = st.date_input(
+            "Date of Service",
+            value=date_val,
+            key="appointment_date_picker_image"
+        )
+        appointment_date = appointment_date_picker.strftime("%Y-%m-%d")
+        # Use the value from the calendar picker as the appointment_date for all patient rows
         if visit_type_code:
             st.info(f"Found visit type in image: {BILLING_CODES[visit_type_code]} (Billing Code: {visit_type_code})")
         
@@ -215,7 +229,7 @@ if uploaded_png is not None:
                 if not match_row.empty:
                     patient_info = match_row.iloc[0].to_dict()
                     results.append({
-                        'date_of_service': appointment_date if appointment_date else 'Not found in image',
+                        'date_of_service': appointment_date if appointment_date else '',
                         'last_name': patient_info.get('last_name', ''),
                         'first_name': patient_info.get('first_name', ''),
                         'PHN': phn,
@@ -230,7 +244,7 @@ if uploaded_png is not None:
                     })
                 else:
                     results.append({
-                        'date_of_service': appointment_date if appointment_date else 'Not found in image',
+                        'date_of_service': appointment_date if appointment_date else '',
                         'last_name': '',
                         'first_name': '',
                         'PHN': phn,
@@ -267,6 +281,10 @@ if uploaded_png is not None:
                 st.session_state.df['facility_code'] = facility_code
                 st.session_state.df['rural_premium'] = rural_premium
                 st.session_state.df['location'] = 'L'
+            
+            # --- Always update all rows' date_of_service to match the top-level appointment_date ---
+            if 'df' in st.session_state and not st.session_state.df.empty:
+                st.session_state.df['date_of_service'] = appointment_date
             
             # Create a copy of the current dataframe
             current_df = st.session_state.df.copy()
@@ -355,32 +373,6 @@ if uploaded_png is not None:
                     
                     # Editable fields
                     st.markdown("**Edit Fields:**")
-                    # --- Editable appointment date (text input and calendar picker) ---
-                    import datetime
-                    date_val = row_data['date_of_service']
-                    try:
-                        date_val = datetime.datetime.strptime(date_val, "%Y-%m-%d").date() if date_val else datetime.date.today()
-                    except Exception:
-                        date_val = datetime.date.today()
-                    date_of_service_picker = st.date_input(
-                        "Date of Service (calendar)",
-                        value=date_val,
-                        key=f"date_of_service_picker_{idx}"
-                    )
-                    # Save as string in YYYY-MM-DD format
-                    date_of_service_str = date_of_service_picker.strftime("%Y-%m-%d")
-                    # Also allow manual text input
-                    date_of_service_text = st.text_input(
-                        "Date of Service (YYYY-MM-DD)",
-                        value=date_of_service_str,
-                        key=f"date_of_service_text_{idx}"
-                    )
-                    # If either input changes, update session state
-                    if date_of_service_text != row_data['date_of_service']:
-                        st.session_state.df.at[idx, 'date_of_service'] = date_of_service_text
-                    elif date_of_service_str != row_data['date_of_service']:
-                        st.session_state.df.at[idx, 'date_of_service'] = date_of_service_str
-                    
                     edit_col1, edit_col2 = st.columns(2)
                     
                     with edit_col1:
