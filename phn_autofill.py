@@ -1,4 +1,10 @@
 import streamlit as st
+# --- Clear sidebar diagnosis fields if flag is set (must be at the very top before widgets) ---
+if st.session_state.get("clear_diag_fields", False):
+    st.session_state["new_diag_code_sidebar"] = ""
+    st.session_state["new_diag_desc_sidebar"] = ""
+    st.session_state["clear_diag_fields"] = False
+
 import pandas as pd
 from PIL import Image
 import pytesseract
@@ -425,49 +431,6 @@ if uploaded_png is not None:
                                 key=f"diagnosis_{idx}",
                                 help="Select or search for a diagnosis code"
                             )
-                            
-                            # Add UI to add a new diagnosis code
-                            with st.expander("➕ Add New Diagnosis Code", expanded=False):
-                                new_code = st.text_input("New Diagnosis Code", key=f"new_diag_code_{idx}")
-                                new_desc = st.text_input("New Diagnosis Description", key=f"new_diag_desc_{idx}")
-                                if st.button("Add Diagnosis Code", key=f"add_diag_btn_{idx}"):
-                                    if new_code and new_desc:
-                                        # Append to Diagnosis_Code_NEW.csv
-                                        new_row = [new_code, new_desc]
-                                        new_csv_path = os.path.join('diagnosis codes', 'Diagnosis_Code_NEW.csv')
-                                        try:
-                                            # Check if file exists and if code already exists
-                                            exists = os.path.exists(new_csv_path)
-                                            code_exists = False
-                                            if exists:
-                                                with open(new_csv_path, 'r', encoding='utf-8') as f:
-                                                    reader = csv.reader(f)
-                                                    next(reader, None)  # skip header
-                                                    for row in reader:
-                                                        if row and row[0].strip() == new_code.strip():
-                                                            code_exists = True
-                                                            break
-                                            if code_exists:
-                                                st.warning(f"Code {new_code} already exists in Diagnosis_Code_NEW.csv.")
-                                            else:
-                                                with open(new_csv_path, 'a', encoding='utf-8', newline='') as f:
-                                                    writer = csv.writer(f)
-                                                    if not exists or os.path.getsize(new_csv_path) == 0:
-                                                        writer.writerow(["Code", "Description"])
-                                                    writer.writerow(new_row)
-                                                st.success(f"Added new diagnosis code: {new_code} - {new_desc}")
-                                                # Reload diagnosis codes
-                                                diagnosis_codes_df = load_diagnosis_codes()
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Error adding new diagnosis code: {str(e)}")
-                                    else:
-                                        st.warning("Please enter both a code and a description.")
-                            
-                            # Update diagnosis in session state
-                            if new_diagnosis != current_diagnosis_option:
-                                diagnosis_code = extract_diagnosis_code(new_diagnosis)
-                                st.session_state.df.at[idx, 'diagnosis'] = diagnosis_code
                     
                     # Start/End time input for specific billing codes
                     if new_billing_code in TIME_REQUIRED_CODES:
@@ -623,4 +586,40 @@ if uploaded_png is not None:
             st.error("No PHN found in the image.")
     except Exception as e:
         st.error(f"Error processing image: {str(e)}")
+
+# --- Add New Diagnosis Code in Sidebar ---
+with st.sidebar:
+    st.header("➕ Add New Diagnosis Code")
+    new_code = st.text_input("New Diagnosis Code", key="new_diag_code_sidebar")
+    new_desc = st.text_input("New Diagnosis Description", key="new_diag_desc_sidebar")
+    if st.button("Add Diagnosis Code", key="add_diag_btn_sidebar"):
+        if new_code and new_desc:
+            new_csv_path = os.path.join('diagnosis codes', 'Diagnosis_Code_NEW.csv')
+            try:
+                exists = os.path.exists(new_csv_path)
+                code_exists = False
+                if exists:
+                    with open(new_csv_path, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        next(reader, None)  # skip header
+                        for row in reader:
+                            if row and row[0].strip() == new_code.strip():
+                                code_exists = True
+                                break
+                if code_exists:
+                    st.warning(f"Code {new_code} already exists in Diagnosis_Code_NEW.csv.")
+                else:
+                    with open(new_csv_path, 'a', encoding='utf-8', newline='') as f:
+                        writer = csv.writer(f)
+                        if not exists or os.path.getsize(new_csv_path) == 0:
+                            writer.writerow(["Code", "Description"])
+                        writer.writerow([new_code, new_desc])
+                    st.success(f"Added new diagnosis code: {new_code} - {new_desc}")
+                    # Set flag to clear fields and rerun
+                    st.session_state["clear_diag_fields"] = True
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error adding new diagnosis code: {str(e)}")
+        else:
+            st.warning("Please enter both a code and a description.")
 
