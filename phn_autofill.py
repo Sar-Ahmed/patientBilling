@@ -431,6 +431,9 @@ if uploaded_png is not None:
                                 key=f"diagnosis_{idx}",
                                 help="Select or search for a diagnosis code"
                             )
+                            # Update the dataframe if the diagnosis has changed
+                            if new_diagnosis != '' and new_diagnosis != current_diagnosis_option:
+                                st.session_state.df.at[idx, 'diagnosis'] = extract_diagnosis_code(new_diagnosis)
                     
                     # Start/End time input for specific billing codes
                     if new_billing_code in TIME_REQUIRED_CODES:
@@ -579,8 +582,6 @@ if uploaded_png is not None:
                     ),
                 }
             )
-            
-            st.text_area("OCR Extracted Text (for debugging)", raw_text, height=200)
             
         else:
             st.error("No PHN found in the image.")
