@@ -16,8 +16,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Ignore CSV or temp data (optional)
-*.csv
 
 # Ignore logs or outputs
 *.log
