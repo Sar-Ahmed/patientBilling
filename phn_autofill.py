@@ -29,13 +29,65 @@ def repair_multiline_csv(file_path):
                 repaired_lines.append(line.strip('\n'))
     return io.StringIO('\n'.join(repaired_lines))
 
+def extract_visit_type_for_phn(text, phn):
+    """Extract Visit Type from OCR text for a specific PHN by looking at the context around that PHN."""
+    text_lower = text.lower()
+    phn_str = str(phn)
+    
+    # Split text into lines to find the line containing this PHN
+    lines = text.split('\n')
+    
+    # Find the line containing this specific PHN
+    phn_line = None
+    phn_line_index = -1
+    for i, line in enumerate(lines):
+        if phn_str in line:
+            phn_line = line.lower()
+            phn_line_index = i
+            break
+    
+    # If we found the line with this PHN, check for visit type indicators in that line
+    if phn_line:
+        # Look for LFP Virtual or LFP Office in the same line as the PHN
+        # Also check for common OCR variations like "LEP Office" instead of "LFP Office"
+        if 'lfp virtual' in phn_line:
+            return '98032'  # LFP Virtual
+        if 'lfp office' in phn_line or 'lep office' in phn_line:  # Handle OCR variation
+            return '98031'  # LFP Office
+    
+    # If not found in the specific line, check nearby lines (within 2 lines)
+    if phn_line_index >= 0:
+        # Check the line before and after the PHN line
+        for offset in [-1, 1]:
+            check_index = phn_line_index + offset
+            if 0 <= check_index < len(lines):
+                nearby_line = lines[check_index].lower()
+                if 'lfp virtual' in nearby_line:
+                    return '98032'  # LFP Virtual
+                if 'lfp office' in nearby_line or 'lep office' in nearby_line:
+                    return '98031'  # LFP Office
+    
+    # If not found in the specific line or nearby lines, check the entire text as fallback
+    if 'lfp virtual' in text_lower:
+        return '98032'  # LFP Virtual
+    if 'lfp office' in text_lower or 'lep office' in text_lower:
+        return '98031'  # LFP Office
+    
+    # If neither specific phrase is found, return None (no automatic default)
+    return None
+
 def extract_visit_type(text):
     """Extract Visit Type from OCR text and map to billing code for LFP Virtual or LFP Office only."""
-    if 'lfp virtual' in text.lower():
-        return '98032'
-    if 'lfp office' in text.lower():
-        return '98031'
-    return '98032'  # Default to LFP Virtual
+    text_lower = text.lower()
+    
+    # Only look for the specific LFP phrases
+    if 'lfp virtual' in text_lower:
+        return '98032'  # LFP Virtual
+    if 'lfp office' in text_lower:
+        return '98031'  # LFP Office
+    
+    # If neither specific phrase is found, return None (no automatic default)
+    return None
 
 def extract_phns_from_text(text):
     phn_pattern = r'\b\d{10}\b'
@@ -218,9 +270,6 @@ if uploaded_png is not None:
             key="appointment_date_picker_image"
         )
         appointment_date = appointment_date_picker.strftime("%Y-%m-%d")
-        # Use the value from the calendar picker as the appointment_date for all patient rows
-        if visit_type_code:
-            st.info(f"Found visit type in image: {BILLING_CODES[visit_type_code]} (Billing Code: {visit_type_code})")
         
         phns = extract_phns_from_text(raw_text)
         if phns:
@@ -231,7 +280,10 @@ if uploaded_png is not None:
             results = []
             for phn in phns:
                 match_row = patient_df[patient_df['phn'] == phn]
-                billing_code = visit_type_code if visit_type_code else '98032'  # Use visit type if found, else default
+                # Extract visit type for this specific PHN
+                phn_visit_type = extract_visit_type_for_phn(raw_text, phn)
+                # Only use visit_type_code if it was actually found, otherwise leave empty for manual selection
+                billing_code = phn_visit_type if phn_visit_type else ''
                 if not match_row.empty:
                     patient_info = match_row.iloc[0].to_dict()
                     results.append({
@@ -263,7 +315,7 @@ if uploaded_png is not None:
                         'end_time': '',
                         'rural_premium': rural_premium
                     })
-            st.success(f"Found {len(phns)} PHN(s) in the image. See autofilled info below:")
+            # st.success(f"Found {len(phns)} PHN(s) in the image. See autofilled info below:")
             
             # Initialize session state for the dataframe if it doesn't exist
             if 'df' not in st.session_state:
@@ -384,12 +436,17 @@ if uploaded_png is not None:
                     with edit_col1:
                         # Billing code selection with descriptions
                         billing_options = [f"{code} - {desc}" for code, desc in BILLING_CODES.items()]
-                        current_billing_with_desc = f"{row_data['billing_item']} - {BILLING_CODES.get(row_data['billing_item'], '')}"
+                        current_billing_with_desc = f"{row_data['billing_item']} - {BILLING_CODES.get(row_data['billing_item'], '')}" if row_data['billing_item'] else ""
+                        
+                        # Find the correct index for the current billing code
+                        current_index = 0
+                        if current_billing_with_desc and current_billing_with_desc in billing_options:
+                            current_index = billing_options.index(current_billing_with_desc)
                         
                         new_billing_with_desc = st.selectbox(
                             "Billing Code",
                             options=billing_options,
-                            index=billing_options.index(current_billing_with_desc) if current_billing_with_desc in billing_options else 0,
+                            index=current_index,
                             key=f"billing_{idx}",
                             help="Select the billing code for this service"
                         )
